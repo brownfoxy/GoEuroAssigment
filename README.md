@@ -1,5 +1,6 @@
 # GoEuroAssigment
-This repository contains my solution to the assignment
+This repository contains my solution to the below assignment
+https://github.com/goeuro/dev-test
 
 Please follow the below steps to build and test the solution </br>
 1) mvn install </br>
