@@ -1,19 +1,21 @@
 package com.goeuro.main;
 
 import au.com.bytecode.opencsv.CSVWriter;
+import com.goeuro.client.CSVWriterProvider;
+import com.goeuro.client.CSVWriterProviderImpl;
+import com.goeuro.client.ClientProvider;
+import com.goeuro.client.IClientProvider;
+import com.goeuro.config.Config;
 import com.goeuro.entity.City;
 import com.sun.jersey.api.client.Client;
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.GenericType;
 import com.sun.jersey.api.client.WebResource;
-import com.sun.jersey.api.client.config.ClientConfig;
-import com.sun.jersey.api.client.config.DefaultClientConfig;
-import com.sun.jersey.api.json.JSONConfiguration;
-import org.codehaus.jackson.jaxrs.JacksonJsonProvider;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.List;
 
 /**
@@ -21,83 +23,103 @@ import java.util.List;
  */
 public class Application {
 
-    private static final String GET_CITY_URL = "http://api.goeuro.com/api/v2/position/suggest/en/";
-    private static final ClientConfig clientConfig = new DefaultClientConfig();
+    private final IClientProvider clientProvider  = new ClientProvider();
+    private final CSVWriterProvider csvWriterProvider = new CSVWriterProviderImpl();
 
     public static void main(String[] args) {
 
-        if(!validateInput(args)){
+        Application application = new Application();
+        CSVWriter csvWriter = null;
+
+        if(!application.validateInput(args)){
             System.err.println("Input string is NOT valid! Please enter a valid CITY_NAME");
             System.exit(1);
         }
 
         String inputCity = args[0];
 
-        //Enable auto conversion from JSON to Java object
-        clientConfig.getFeatures().put(JSONConfiguration.FEATURE_POJO_MAPPING, Boolean.TRUE);
-        clientConfig.getClasses().add(JacksonJsonProvider.class);
-        Client client = Client.create(clientConfig);
-        WebResource webResource = client.resource(GET_CITY_URL).path(inputCity.trim());
-        ClientResponse response = webResource.get(ClientResponse.class);
+        WebResource webResource = application.getWebResource(inputCity);
+        ClientResponse clientResponse = webResource.get(ClientResponse.class);
 
-        List<City> cities = webResource.get(new GenericType<List<City>>(){});
+        if (clientResponse.getStatus() != 200) {
+            System.err.println("Invalid HTTP status:"+clientResponse.getStatus());
+            System.exit(1);
+        }
+        List<City> cities = application.getAllObjects(webResource, City.class);
 
-        if (response.getStatus() != 200) {
-            System.err.println("Invalid HTTP status:"+response.getStatus());
+        String workingDir = System.getProperty("user.dir");
+        System.out.println("Final data(Cities.csv) will be stored under : " + workingDir);
+
+        try {
+            csvWriter = application.getCsvWriter(new File(workingDir));
+        } catch (IOException e) {
+            System.err.println("Error getting Csvwriter for the path: "+workingDir);
             System.exit(1);
         }
 
-        exportDataIntoCSV(cities);
+        try {
+            application.exportDataIntoCSV(csvWriter, cities);
+        } catch (IOException e) {
+            System.out.println("Error flushing data to CSV file or Closing CSV!");
+        }
     }
 
-    private static void exportDataIntoCSV(List<City> cities) {
-        CSVWriter csvWriter=null;
-        try {
-            csvWriter = createCSVInCurrentDirectory();
-        } catch (IOException e) {
-            System.out.println("Error creating CSV file!");
-            System.exit(1);
-        }
+    private CSVWriter getCsvWriter(File file) throws IOException {
+        return csvWriterProvider.getCsvWriter(file);
+    }
 
+
+    public <T> List<T> getAllObjects(WebResource webResource, final Class<T> clazz) {
+
+        ParameterizedType parameterizeGenericType = new ParameterizedType() {
+            public Type[] getActualTypeArguments() {
+                return new Type[] { clazz };
+            }
+
+            public Type getRawType() {
+                return List.class;
+            }
+
+            public Type getOwnerType() {
+                return List.class;
+            }
+        };
+
+        GenericType<List<T>> genericType = new GenericType<List<T>>(
+                parameterizeGenericType) {
+        };
+
+        return webResource.get(genericType);
+    }
+
+
+
+    private WebResource getWebResource(String input) {
+        Client apiClient = clientProvider.getApiClient();
+        return apiClient.resource(Config.GET_CITY_URL).path(input.trim());
+    }
+
+    public void exportDataIntoCSV(CSVWriter csvWriter, List<City> cities) throws IOException {
         String[] header = {"_id","name","type","latitude","longitude"};
         csvWriter.writeNext(header);
-
         long rowsBuffered =0L;
         for(City city:cities){
             csvWriter.writeNext(prepareRow(city));
             rowsBuffered++;
             long FLUSH_THRESHOLD = 1000L;
             if(rowsBuffered >= FLUSH_THRESHOLD){
-                try {
                     csvWriter.flush();
-                } catch (IOException e) {
-                    System.out.println("Error flushing data to CSV file!");
-                }
             }
         }
-        try {
-            csvWriter.flush();
-            csvWriter.close();
-        } catch (IOException e) {
-            System.out.println("Error flushing data to CSV file!");
-            System.exit(1);
-        }
+        csvWriter.flush();
+        csvWriter.close();
     }
 
-     static boolean validateInput(String[] args) {
-        if(args.length==0 || args[0].length()==0){
-            return false;
-        }
-        return true;
+    boolean validateInput(String[] args) {
+        return !(args.length == 0 || args[0].length() == 0);
     }
 
-    private static CSVWriter createCSVInCurrentDirectory() throws IOException {
-        String workingDir = System.getProperty("user.dir");
-        System.out.println("Final data will be stored under : " + workingDir);
-        return new CSVWriter(new FileWriter(new File(workingDir,"Cities.csv")));
-    }
-
-    static String[] prepareRow(City city) {
+    String[] prepareRow(City city) {
         String[] row = { String.valueOf(city.get_id()),city.getName(),city.getType(),
                             String.valueOf(city.getGeo_position().getLatitude()),
                             String.valueOf(city.getGeo_position().getLongitude()) };

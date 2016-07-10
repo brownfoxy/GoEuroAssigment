@@ -11,18 +11,18 @@ import static junit.framework.TestCase.assertFalse;
  * Created by phanindra on 7/9/16.
  */
 public class ApplicationTest {
-    Application application = new Application();
+    private final Application application = new Application();
 
     @Test
     public void testEmptyInput(){
         String[] input = {""};
-        assertFalse(Application.validateInput(input));
+        assertFalse(application.validateInput(input));
     }
 
     @Test
     public void testForgottenInput(){
         String[] input = {};
-        assertFalse(Application.validateInput(input));
+        assertFalse(application.validateInput(input));
     }
     @Test
     public void testCSVRowPreparedCorrectly(){
@@ -32,7 +32,7 @@ public class ApplicationTest {
         city.setType("Capital");
         city.setGeo_position(new GeoPosition(10.12,11.23));
 
-        String[] row = Application.prepareRow(city);
+        String[] row = application.prepareRow(city);
         assertEquals(5,row.length);
         assertEquals("1",row[0]);
         assertEquals("Abu Dhabi",row[1]);
@@ -40,6 +40,4 @@ public class ApplicationTest {
         assertEquals("10.12",row[3]);
         assertEquals("11.23",row[4]);
     }
-
-
 }
